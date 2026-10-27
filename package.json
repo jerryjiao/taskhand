@@ -1,0 +1,14 @@
+{
+  "name": "taskhand",
+  "version": "0.1.0",
+  "description": "Dispatch coding work orders to headless Claude Code agents in isolated git worktrees, with a bash guard hook and evidence-based acceptance.",
+  "type": "module",
+  "scripts": {
+    "test": "node --test scripts/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT",
+  "repository": "github:jerryjiao/taskhand"
+}
