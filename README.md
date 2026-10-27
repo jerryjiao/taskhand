@@ -1,10 +1,14 @@
 # taskhand
 
+<p align="center">
+  <img src="assets/logo.svg" width="128" alt="taskhand logo">
+</p>
+
 Dispatch coding **work orders** to headless AI coding agents (Claude Code) in isolated **git worktrees** — with a bash-command guard hook and evidence-based acceptance.
 
 You act as the orchestrator: write a small, focused order, and `taskhand` runs it in a headless `claude -p` session confined to a dedicated worktree, then hands back a JSON envelope with the session id, token usage, and the worker's report. Orders that can't be verified by a command get bounced before they ever reach a model.
 
-Extracted from a personal multi-agent production system (where the worker is nicknamed 力工 *lìgōng*, "laborer") and open-sourced as-is: code comments and guard messages are Chinese, this README is English.
+Extracted from a personal multi-agent production system and open-sourced as-is, with everything workspace-specific removed.
 
 ## What's in the box
 
@@ -31,7 +35,7 @@ A headless agent with `--dangerously-skip-permissions` is only safe if the rails
    - publishing packages (`npm/pnpm/yarn/bun/cargo/poetry/uv publish`, `twine upload`, `gem push`)
    - recursive `rm` and destructive `find` targeting outside the worktree (or `*`)
    When it blocks, the worker sees a one-line Chinese reason on stderr. When the guard itself can't parse input, it fails open — a wedged hook is worse than a missed block.
-4. **The order format** — every order carries an explicit 禁区 (off-limits) section, machine-checkable acceptance criteria, and strict size limits. Untrusted material (logs, web pages, error text) is wrapped in `::UNTRUSTED` blocks so the worker treats it as data, not instructions.
+4. **The order format** — every order carries an explicit Off-limits section, machine-checkable acceptance criteria, and strict size limits. Untrusted material (logs, web pages, error text) is wrapped in `::UNTRUSTED` blocks so the worker treats it as data, not instructions.
 
 ## Quickstart
 
@@ -83,28 +87,28 @@ Independent orders run in parallel (up to ~5, each in its own worktree); depende
 
 ## The work order format
 
-The section keywords are Chinese literals — `order-check.mjs` enforces them; copy the template. Gloss: 目标 goal · 相关文件 relevant files · 要求 requirements · 禁区 off-limits · 验收 acceptance · 交回 report back.
+Section keywords are English literals — `order-check.mjs` enforces them; copy the template. The last two sections are intentionally phrased as instructions to the worker.
 
 ```markdown
-# 目标
+# Goal
 <one sentence of what, plus one of why — the worker uses the why to settle choices the order didn't specify>
-# 相关文件
+# Files
 - <paths, as specific as possible>
-# 要求
+# Requirements
 - <concrete changes, constraints, project rules>
-# 禁区
-不碰凭据（密钥、密码、.env、钥匙串）；不删数据、不 force push、不删分支；不做项目写明必须人工的动作；不发包、不提审、不群发、不涉及付款。
-# 验收
+# Off-limits
+No credentials (keys, passwords, .env, keychain); no deleting data, no force push, no branch deletion; nothing the project says must be done by a human; no publishing, no app-store submissions, no mass messaging, no payments.
+# Acceptance
 ::RUBRIC{id:r1|threshold:1.0}
   R:tests|check:"npm test"
   R:lint|check:"npm run lint"
-# 交回
-完成后在 worktree 里本地 commit（不要 push），然后按验收项逐条跑 check，每项回一行：
+# Report
+When done, commit locally in the worktree (don't push), then run each acceptance check and answer one line per item:
 ::EVIDENCE{id:e1|deliverable:r1.tests|kind:test_output|ref:"<key output line>"|result:pass|by:@AGENT|authority:proposal}
-没过的写 result:fail|gap:<what's missing>。最后再写：改了哪些文件、commit 号、遇到的问题。
+For failures write result:fail|gap:<what's missing>. Finally: which files changed, the commit id, problems encountered.
 ```
 
-`dispatch` bounces an order unless it has ≤ 3 requirements, ≤ 4 files, ≥ 1 machine-checkable `check:"…"`, and no sequential-step words（先…再 / 然后 / 最后 / 第一步）in 目标/要求 — those are the tell that one order wants to be two.
+`dispatch` bounces an order unless it has ≤ 3 requirements, ≤ 4 files, ≥ 1 machine-checkable `check:"…"`, and no sequential-step phrases ("first … then" / "then" / "finally" / "step N") in Goal/Requirements — those are the tell that one order wants to be two.
 
 Attach logs, pages, or quoted text for reference (never as instructions) in a `::UNTRUSTED` block:
 
@@ -142,6 +146,6 @@ Each spawned `claude` session gets a clean env (no inherited `ANTHROPIC_*`), an 
 
 ## Notes
 
-- Comments, CLI errors, and guard reasons are Chinese; the interface documented here is the whole English surface.
+- The rate-limit matcher also checks a few Chinese phrases (并发/限流/使用上限): upstream endpoints sometimes answer rate-limit errors in Chinese, and a missed rate limit means a wasted attempt.
 - Origin: this ran as the dispatch layer of the author's personal agent workspace (skills/ligong) since 2025-10; the author's instance retired in favor of a gateway split, and the mechanics were extracted and published under this name.
 - License: [MIT](LICENSE).

@@ -1,27 +1,27 @@
 #!/usr/bin/env node
-// 派活单体检：按固定段落数一数，缺段或太肥就拦（dispatch 发单前用；格式见 README）。
+// Work-order health check: counts the fixed sections, bounces missing or oversized
+// orders (dispatch runs it before sending; format documented in README).
 //
-//   node order-check.mjs <派活单路径>
+//   node order-check.mjs <order-file>
 
 import { readFileSync, realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
-const SECTIONS = ["目标", "相关文件", "要求", "禁区", "验收", "交回"];
-// 2026-10-25 估值，等按单打回数据校准
+const SECTIONS = ["Goal", "Files", "Requirements", "Off-limits", "Acceptance", "Report"];
+// Calibrated by feel on day one; recalibrate against rework data once it accumulates
 export const MAX_REQUIREMENTS = 3;
 export const MAX_FILES = 4;
 export const MIN_CHECKS = 1;
 
-// 连续步骤字眼：要求里出现就说明这一单其实该拆成多单
+// Sequential-step phrases: any of these in Goal/Requirements means the order really wants to be two
 const STEP_PATTERNS = [
-  [/先[^\n。；]*再/, "先…再"],
-  [/然后/, "然后"],
-  [/最后/, "最后"],
-  [/第一步/, "第一步"],
-  [/步骤\s*\d+/, "步骤+数字"],
+  [/\bfirst\b[^.;\n]*\bthen\b/i, "first…then"],
+  [/\bthen\b/i, "then"],
+  [/\bfinally\b/i, "finally"],
+  [/\bstep\s*\d+/i, "step N"],
 ];
 
-// 只认一级标题；代码块里的 # 行不算标题（交回里的示例常带）
+// Only top-level headings count; `#` lines inside code fences don't (Report examples often have them)
 function splitSections(text) {
   const sections = new Map();
   let cur = null;
@@ -47,36 +47,44 @@ export function checkOrder(text) {
   const sections = splitSections(text);
   const lines = (name) => sections.get(name)?.lines ?? [];
 
-  const requirements = countItems(lines("要求"));
-  const files = countItems(lines("相关文件"));
-  const checks = (lines("验收").join("\n").match(/check:"[^"]*"/g) ?? []).length;
-  // 括号、引号、行内代码里是在「提到」这些词（本模块自己的派活单就是），不算真步骤
-  const stepText = [...lines("目标"), ...lines("要求")]
+  const requirements = countItems(lines("Requirements"));
+  const files = countItems(lines("Files"));
+  const checks = (lines("Acceptance").join("\n").match(/check:"[^"]*"/g) ?? []).length;
+  // Text inside code spans, parentheses, or double quotes merely *mentions* these words
+  // (this module's own orders do) — not real steps
+  const stepText = [...lines("Goal"), ...lines("Requirements")]
     .join("\n")
     .replace(/`[^`]*`/g, "")
-    .replace(/（[^）]*）/g, "")
-    .replace(/「[^」]*」/g, "");
-  const steps = STEP_PATTERNS.filter(([re]) => re.test(stepText)).map(([, word]) => word);
+    .replace(/\([^)]*\)/g, "")
+    .replace(/"[^"]*"/g, "");
+  // "first…then" spans swallow their "then" — blank them first so the standalone rule doesn't double-count
+  const firstThen = /\bfirst\b[^.;\n]*\bthen\b/gi;
+  const spans = [...stepText.matchAll(firstThen)];
+  const residual = spans.length ? stepText.replace(firstThen, " ") : stepText;
+  const steps = [...spans.map(() => "first…then")];
+  for (const [re, word] of STEP_PATTERNS.slice(1)) {
+    if (new RegExp(re.source, re.flags).test(residual)) steps.push(word);
+  }
 
   const problems = [];
   for (const name of SECTIONS) {
-    if (!sections.has(name)) problems.push(`缺「${name}」段`);
+    if (!sections.has(name)) problems.push(`missing section "${name}"`);
   }
   if (requirements > MAX_REQUIREMENTS)
-    problems.push(`「要求」段有 ${requirements} 条，超过上限 ${MAX_REQUIREMENTS} 条，拆单`);
-  if (files > MAX_FILES) problems.push(`「相关文件」有 ${files} 个，超过上限 ${MAX_FILES} 个，拆单`);
-  if (checks < MIN_CHECKS) problems.push(`「验收」段没有 check:"…" 项`);
-  if (steps.length) problems.push(`「目标/要求」出现连续步骤字眼：${steps.join("、")}，拆单`);
+    problems.push(`Requirements has ${requirements} items, over the limit of ${MAX_REQUIREMENTS} — split the order`);
+  if (files > MAX_FILES) problems.push(`Files has ${files} entries, over the limit of ${MAX_FILES} — split the order`);
+  if (checks < MIN_CHECKS) problems.push(`Acceptance has no check:"…" item`);
+  if (steps.length) problems.push(`Goal/Requirements contain sequential-step words: ${steps.join(", ")} — split the order`);
 
   return { ok: problems.length === 0, problems, stats: { requirements, files, checks, steps } };
 }
 
-// CLI 入口只在直接运行时执行：argv[1] 可能是软链，realpath 后再比（同 taskhand.mjs 末尾）。
+// CLI entry only runs when executed directly: argv[1] may be a symlink, compare after realpath (same as taskhand.mjs).
 try {
   if (import.meta.url === pathToFileURL(realpathSync(process.argv[1] ?? "")).href) {
     const file = process.argv[2];
     if (!file) {
-      process.stderr.write("用法：node order-check.mjs <派活单路径>\n");
+      process.stderr.write("usage: node order-check.mjs <order-file>\n");
       process.exitCode = 1;
     } else {
       const result = checkOrder(readFileSync(file, "utf8"));
@@ -84,4 +92,4 @@ try {
       process.exitCode = result.ok ? 0 : 1;
     }
   }
-} catch { /* argv[1] 不存在等情况：不运行 CLI */ }
+} catch { /* argv[1] missing etc.: don't run the CLI */ }
